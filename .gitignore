@@ -1,0 +1,47 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+.venv/
+ENV/
+
+# Editor / OS artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Python testing
+.pytest_cache/
+.coverage
+htmlcov/
+cache/
+
+# Environment variables
+.env
+.env.*
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+*.log
+
+# Static output (refined images)
+static/*.png
+static/*.jpg
+static/*.jpeg
+static/*.gif
+
+# Redis database dumps (if you run locally)
+dump.rdb
+appendonly.aof
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
