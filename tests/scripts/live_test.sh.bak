@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+API=http://127.0.0.1:8001
+SKETCH_PATH="test_images/test_sketch.png"
+
+echo "1) Submitting initial refine…"
+RESP=$(curl -X POST "$API/api/sketch/refine" \
+  -F "file=@${SKETCH_PATH}")
+echo "→ $RESP"
+
+IMAGE_ID=$(echo "$RESP" | jq -r .image_id)
+JOB1=$(echo    "$RESP" | jq -r .job_id)
+echo "   image_id=$IMAGE_ID, job_id=$JOB1"
+
+echo
+echo "2) Polling status for job $JOB1"
+while true; do
+  S=$(curl -s "$API/api/sketch/status/$JOB1" | jq -r .status)
+  echo "   status: $S"
+  [[ "$S" == "SUCCESS" || "$S" == "FAILURE" ]] && break
+  sleep 5
+done
+
+if [[ "$S" != "SUCCESS" ]]; then
+  echo "Initial refine failed!"
+  exit 1
+fi
+
+URL1=$(curl -s "$API/api/sketch/status/$JOB1" | jq -r .url)
+echo "3) Downloading refined image → out_v1.png"
+curl -s "$API${URL1}" -o out_v1.png
+
+echo
+echo "4) Submitting multi-turn edit…"
+EDIT_PROMPT="Add a dramatic sunset to the background"
+EDIT_RESP=$(curl -X POST "$API/api/sketch/edit" \
+  -H "Content-Type: application/json" \
+  -d '{"image_id":"'"$IMAGE_ID"'","prompt":"'"$EDIT_PROMPT"'"}')
+echo "→ $EDIT_RESP"
+
+JOB2=$(echo "$EDIT_RESP" | jq -r .job_id)
+echo "   edit job_id=$JOB2"
+
+echo
+echo "5) Polling status for job $JOB2…"
+while true; do
+  S2=$(curl -s "$API/api/sketch/status/$JOB2" | jq -r .status)
+  echo "   status: $S2"
+  [[ "$S2" == "SUCCESS" || "$S2" == "FAILURE" ]] && break
+  sleep 2
+done
+
+if [[ "$S2" != "SUCCESS" ]]; then
+  echo "Edit refine failed!"
+  exit 1
+fi
+
+URL2=$(curl -s "$API/api/sketch/status/$JOB2" | jq -r .url)
+echo "6) Downloading edited image → out_v2.png"
+curl -s "$API${URL2}" -o out_v2.png
+
+echo
+echo "✅ Done! Check out:"
+echo "   • out_v1.png  (initial refine)"
+echo "   • out_v2.png  (multi-turn edit with prompt: $EDIT_PROMPT)"

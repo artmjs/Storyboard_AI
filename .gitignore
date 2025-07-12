@@ -32,10 +32,7 @@ celerybeat.pid
 *.log
 
 # Static output (refined images)
-static/*.png
-static/*.jpg
-static/*.jpeg
-static/*.gif
+static/*
 
 # Redis database dumps (if you run locally)
 dump.rdb

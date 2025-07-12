@@ -37,7 +37,7 @@ class TimerMiddleware(BaseHTTPMiddleware):
         return response
 
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
 
 @app.post("/api/sketch/refine")
 async def refine_endpoint(file: UploadFile):
