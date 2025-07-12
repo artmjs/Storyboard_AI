@@ -1,20 +1,27 @@
-from fastapi import FastAPI, UploadFile, HTTPException
-from celery_worker import celery
-from celery.result import AsyncResult
-from app.tasks.image_tasks import refine_sketch_task
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
-import logging 
+# Standard library
+import logging
 import time
+import uuid
+
+# Third-party
 import redis
-from app.core.config import settings
+from celery.result import AsyncResult
+from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+
+# Local
+from celery_worker import celery
+from app.core.config import settings, EditRequest
+from app.core.redis_client import redis_client
+from app.tasks.image_tasks import refine_sketch_task, refine_with_context_task
 
 # logging configuration
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-
+#app
 app = FastAPI(title="Storyboard AI MVP")
 
 # redis client instantiation 
@@ -31,45 +38,60 @@ class TimerMiddleware(BaseHTTPMiddleware):
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
 @app.post("/api/sketch/refine")
 async def refine_endpoint(file: UploadFile):
 
     start = time.time()
 
+
     # read sketch bytes or raise exception
     sketch_bytes = await file.read()
     logger.debug(f"Recieved upload: {len(sketch_bytes)} bytes")
-
-
     if not sketch_bytes:
         logger.warning("Upload contained no data")
-        raise HTTPException(status_code=400, detail="No file uploaded")
+        raise HTTPException(status_code=422, detail="No file uploaded")
 
-
-    prompt = "Refine this storyboard sketch into a clean, professional pencil drawn panel." \
-    " Keep the exact same composition, placement of objects, framing. Only change the " \
-    "visual style of the sketch."
 
     # enqueue celery task, record time
-    job = refine_sketch_task.delay(prompt, sketch_bytes)
-
+    image_id = uuid.uuid4().hex
+    job = refine_sketch_task.delay(
+        image_id, 
+        settings.FIRST_REFINE_PROMPT, 
+        sketch_bytes
+        )
     enqueue_time = time.time() - start
     logger.debug(f"Enqueued job {job.id} in {enqueue_time:.3f}s")
 
     # store job id in a redis set
     redis_client.sadd("jobs", job.id)
 
-
-
-
-
     # return immediately
-    resp = JSONResponse({"job_id": job.id, "status": "PENDING"})
+    resp = JSONResponse({
+        "job_id": job.id, "status": "PENDING", "image_id": image_id
+        })
     resp.headers["X-Enqueue-Time"] = f"{enqueue_time:.3f}s"
-
     return resp
 
+# multi turn edit endpoint. 
+@app.post("/api/sketch/edit")
+async def edit_endpoint(req: EditRequest):
+    
+    if not redis_client.exists(f"image:{req.image_id}"):
+        raise HTTPException(404, "Unknown image_id")
 
+    # enqueue the multi-turn refine
+    job = refine_with_context_task.delay(req.image_id, req.prompt)
+
+    # add to the redis set
+    redis_client.sadd("jobs", job.id)
+    # return the job id
+    return JSONResponse(
+      {"job_id": job.id, "status": "PENDING", "image_id": req.image_id}
+    )
+
+
+# get all jobs 
 @app.get("/api/sketch/status")
 def list_all_jobs():
     jobs = []
@@ -82,6 +104,21 @@ def list_all_jobs():
             entry["error"] = str(res.result)
         jobs.append(entry)
     return jobs
+
+# get one
+@app.get("/api/sketch/status/{job_id}")
+def get_job_status(job_id: str):
+    
+
+    if not redis_client.sismember("jobs", job_id):
+        raise HTTPException(404, detail="Unknown job_id")
+    res = AsyncResult(job_id, app=celery)
+    entry = {"job_id": job_id, "status": res.state}
+    if res.state == "SUCCESS":
+        entry["url"] = res.result
+    elif res.state == "FAILURE":
+        entry["error"] = str(res.result)
+    return entry
 
 @app.get("/health")
 def health():
