@@ -2,7 +2,7 @@
 set -euo pipefail
 
 API=http://127.0.0.1:8001
-SKETCH_PATH="test_images/test_sketch.png"
+SKETCH_PATH="test_images/test_sketch_3.png"
 
 echo "1) Submitting initial refine..."
 RESP=$(curl -s -X POST "$API/api/sketch/refine" \

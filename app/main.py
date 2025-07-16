@@ -55,6 +55,7 @@ async def refine_endpoint(file: UploadFile):
 
     # enqueue celery task, record time
     image_id = uuid.uuid4().hex
+    
     job = refine_sketch_task.delay(
         image_id, 
         settings.FIRST_REFINE_PROMPT, 

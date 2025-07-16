@@ -11,7 +11,8 @@ class Settings(BaseSettings):
         "Please clean up and sharpen the existing line work, improve clarity and contrast, "
         "and correct any small drawing inconsistencies—while preserving the original art style, "
         "character designs, and exact object/character positions. "
-        "Do not introduce any new filters, color treatments, or stylistic changes."
+        "Do not introduce any new filters, color treatments, or stylistic changes." \
+        "Make an edit strictly within mask boundaries. If any text is present on the sketch, do not remove it."
     )
 
     model_config = ConfigDict(env_file=".env")
