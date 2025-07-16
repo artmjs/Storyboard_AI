@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF Panel Selector</title>
+  <style>
+    #container { position: relative; display: inline-block; }
+    canvas {
+      border: 1px solid #aaa;
+      display: block;
+    }
+    /* overlay sits exactly on top of pdfCanvas */
+    #overlay {
+      position: absolute;
+      top: 0; left: 0;
+      pointer-events: none; /* until we enable drawing */
+    }
+  </style>
+</head>
+<body>
+  <input type="file" id="fileInput" accept="application/pdf" />
+  <button id="enableSelect">Select Panel</button>
+  <button id="crop">Crop & Download</button>
+  <div id="container">
+    <canvas id="pdfCanvas"></canvas>
+    <canvas id="overlay"></canvas>
+  </div>
+  <!-- PDF.js from CDN as before -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.worker.min.js';
+    
+    const fileInput = document.getElementById('fileInput');
+    const pdfCanvas = document.getElementById('pdfCanvas');
+    const overlay   = document.getElementById('overlay');
+    const pdfCtx    = pdfCanvas.getContext('2d');
+    const octx      = overlay.getContext('2d');
+    const btnSelect = document.getElementById('enableSelect');
+    const btnCrop   = document.getElementById('crop');
+
+    let pdfPage, scale=1.5;
+    let selecting = false;
+    let start = null, rect = null;
+
+    // --- 1) Load & render PDF page as you already have ---
+    fileInput.addEventListener('change', async e => {
+      const data = await e.target.files[0].arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({data}).promise;
+      pdfPage = await pdf.getPage(1);
+      const v = pdfPage.getViewport({scale});
+      pdfCanvas.width = overlay.width = v.width;
+      pdfCanvas.height = overlay.height = v.height;
+      await pdfPage.render({ canvasContext: pdfCtx, viewport: v }).promise;
+    });
+
+    // --- 2) Toggle panel-selection mode ---
+    btnSelect.addEventListener('click', () => {
+      selecting = !selecting;
+      overlay.style.pointerEvents = selecting ? 'auto' : 'none';
+      if (!selecting) {
+        // clear any in-progress rectangle
+        octx.clearRect(0,0,overlay.width,overlay.height);
+        start = rect = null;
+      }
+      btnSelect.textContent = selecting ? 'Cancel Selection' : 'Select Panel';
+    });
+
+    // --- 3) Mouse handlers on overlay ---
+    overlay.addEventListener('mousedown', e => {
+      if (!selecting) return;
+      // record start point
+      start = { x: e.offsetX, y: e.offsetY };
+    });
+    overlay.addEventListener('mousemove', e => {
+      if (!selecting || !start) return;
+      // compute current rectangle
+      const x1 = Math.min(start.x, e.offsetX);
+      const y1 = Math.min(start.y, e.offsetY);
+      const w  = Math.abs(start.x - e.offsetX);
+      const h  = Math.abs(start.y - e.offsetY);
+      rect = { x:x1, y:y1, w, h };
+      // draw it
+      octx.clearRect(0,0,overlay.width,overlay.height);
+      octx.strokeStyle = 'red';
+      octx.lineWidth = 2;
+      octx.strokeRect(x1, y1, w, h);
+    });
+    overlay.addEventListener('mouseup', e => {
+      if (!selecting) return;
+      // finish drawing; keep rect until crop or cancel
+      start = null;
+    });
+
+    // --- 4) Crop & download (or upload) ---
+    btnCrop.addEventListener('click', () => {
+      if (!rect) return alert('Draw a panel box first');
+      // make a temp canvas
+      const tmp = document.createElement('canvas');
+      tmp.width = rect.w; tmp.height = rect.h;
+      tmp.getContext('2d')
+         .drawImage(pdfCanvas,
+                    rect.x, rect.y, rect.w, rect.h,
+                    0, 0, rect.w, rect.h);
+      // download for now
+      tmp.toBlob(blob => {
+        const link = document.createElement('a');
+        link.download = 'panel.png';
+        link.href = URL.createObjectURL(blob);
+        link.click();
+      });
+      // if you want to send to FastAPI instead:
+      // let fd = new FormData();
+      // fd.append('file', blob, 'panel.png');
+      // fd.append('coords', JSON.stringify(rect));
+      // fetch('/api/enhance', {method:'POST', body:fd})
+      //   .then(r=>r.blob()).then(/* show improved panel */);
+
+      // reset selection state
+      selecting = false;
+      overlay.style.pointerEvents = 'none';
+      octx.clearRect(0,0,overlay.width,overlay.height);
+      rect = null;
+      btnSelect.textContent = 'Select Panel';
+    });
+  </script>
+</body>
+</html>
