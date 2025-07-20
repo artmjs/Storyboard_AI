@@ -13,116 +13,174 @@
     #overlay {
       position: absolute;
       top: 0; left: 0;
-      pointer-events: none; /* until we enable drawing */
+      cursor: crosshair;
     }
+    button.active { background: #ddd; }
   </style>
 </head>
 <body>
   <input type="file" id="fileInput" accept="application/pdf" />
-  <button id="enableSelect">Select Panel</button>
-  <button id="crop">Crop & Download</button>
+  <button id="btnAdd">Add Panel</button>
+  <button id="btnRemove">Remove Panel</button>
+  <button id="btnCrop">Crop & Download All</button>
   <div id="container">
     <canvas id="pdfCanvas"></canvas>
     <canvas id="overlay"></canvas>
   </div>
-  <!-- PDF.js from CDN as before -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.min.js"></script>
   <script>
+    // PDF.js setup
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.worker.min.js';
-    
+
+    // DOM refs
     const fileInput = document.getElementById('fileInput');
     const pdfCanvas = document.getElementById('pdfCanvas');
     const overlay   = document.getElementById('overlay');
     const pdfCtx    = pdfCanvas.getContext('2d');
     const octx      = overlay.getContext('2d');
-    const btnSelect = document.getElementById('enableSelect');
-    const btnCrop   = document.getElementById('crop');
+    const btnAdd    = document.getElementById('btnAdd');
+    const btnRemove = document.getElementById('btnRemove');
+    const btnCrop   = document.getElementById('btnCrop');
 
-    let pdfPage, scale=1.5;
-    let selecting = false;
-    let start = null, rect = null;
+    // State
+    let pdfPage, scale = 1.5;
+    let mode = 'none';          // 'none' | 'add' | 'remove'
+    let startPt = null;         // {x,y} when drawing a new rect
+    let activeRect = null;      // the rect being drawn
+    let rects = [];             // all saved panels
 
-    // --- 1) Load & render PDF page as you already have ---
+    // Helpers
+    function drawAll() {
+      octx.clearRect(0,0,overlay.width,overlay.height);
+      // draw existing panels
+      octx.strokeStyle = 'red';
+      octx.lineWidth = 2;
+      rects.forEach(r => octx.strokeRect(r.x, r.y, r.w, r.h));
+      // draw the one in progress
+      if (activeRect) {
+        octx.strokeStyle = 'blue';
+        octx.strokeRect(activeRect.x, activeRect.y, activeRect.w, activeRect.h);
+      }
+    }
+
+    function setMode(newMode) {
+      mode = newMode;
+      btnAdd.classList.toggle('active', mode === 'add');
+      btnRemove.classList.toggle('active', mode === 'remove');
+      overlay.style.pointerEvents = (mode === 'add' || mode === 'remove') ? 'auto' : 'none';
+      // clear any in-progress draw when switching away
+      if (mode !== 'add') {
+        startPt = activeRect = null;
+        drawAll();
+      }
+    }
+
+    // 1) Load & render PDF
     fileInput.addEventListener('change', async e => {
       const data = await e.target.files[0].arrayBuffer();
       const pdf = await pdfjsLib.getDocument({data}).promise;
       pdfPage = await pdf.getPage(1);
       const v = pdfPage.getViewport({scale});
-      pdfCanvas.width = overlay.width = v.width;
-      pdfCanvas.height = overlay.height = v.height;
+      [pdfCanvas, overlay].forEach(c => {
+        c.width = v.width;
+        c.height = v.height;
+      });
       await pdfPage.render({ canvasContext: pdfCtx, viewport: v }).promise;
+      // Reset any previous selections
+      rects = [];
+      setMode('none');
     });
 
-    // --- 2) Toggle panel-selection mode ---
-    btnSelect.addEventListener('click', () => {
-      selecting = !selecting;
-      overlay.style.pointerEvents = selecting ? 'auto' : 'none';
-      if (!selecting) {
-        // clear any in-progress rectangle
-        octx.clearRect(0,0,overlay.width,overlay.height);
-        start = rect = null;
-      }
-      btnSelect.textContent = selecting ? 'Cancel Selection' : 'Select Panel';
-    });
+    // 2) Switch modes
+    btnAdd   .addEventListener('click', () => setMode(mode === 'add' ? 'none' : 'add'));
+    btnRemove.addEventListener('click', () => setMode(mode === 'remove' ? 'none' : 'remove'));
 
-    // --- 3) Mouse handlers on overlay ---
+    // 3) Drawing new rectangles
     overlay.addEventListener('mousedown', e => {
-      if (!selecting) return;
-      // record start point
-      start = { x: e.offsetX, y: e.offsetY };
+      if (mode !== 'add') return;
+      startPt = { x:e.offsetX, y:e.offsetY };
     });
     overlay.addEventListener('mousemove', e => {
-      if (!selecting || !start) return;
-      // compute current rectangle
-      const x1 = Math.min(start.x, e.offsetX);
-      const y1 = Math.min(start.y, e.offsetY);
-      const w  = Math.abs(start.x - e.offsetX);
-      const h  = Math.abs(start.y - e.offsetY);
-      rect = { x:x1, y:y1, w, h };
-      // draw it
-      octx.clearRect(0,0,overlay.width,overlay.height);
-      octx.strokeStyle = 'red';
-      octx.lineWidth = 2;
-      octx.strokeRect(x1, y1, w, h);
+      if (mode !== 'add' || !startPt) return;
+      const x1 = Math.min(startPt.x, e.offsetX);
+      const y1 = Math.min(startPt.y, e.offsetY);
+      const w  = Math.abs(startPt.x - e.offsetX);
+      const h  = Math.abs(startPt.y - e.offsetY);
+      activeRect = { x:x1, y:y1, w, h };
+      drawAll();
     });
-    overlay.addEventListener('mouseup', e => {
-      if (!selecting) return;
-      // finish drawing; keep rect until crop or cancel
-      start = null;
+    overlay.addEventListener('mouseup', () => {
+      if (mode !== 'add' || !activeRect) return;
+      rects.push(activeRect);
+      activeRect = startPt = null;
+      drawAll();
     });
 
-    // --- 4) Crop & download (or upload) ---
+    // 4) Removing existing rectangles
+    overlay.addEventListener('click', e => {
+      if (mode !== 'remove') return;
+      const px = e.offsetX, py = e.offsetY;
+      // find topmost rect under click
+      for (let i = rects.length - 1; i >= 0; i--) {
+        const r = rects[i];
+        if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
+          rects.splice(i, 1);
+          drawAll();
+          break;
+        }
+      }
+    });
+
+    // 5) Crop & download all panels
     btnCrop.addEventListener('click', () => {
-      if (!rect) return alert('Draw a panel box first');
-      // make a temp canvas
-      const tmp = document.createElement('canvas');
-      tmp.width = rect.w; tmp.height = rect.h;
-      tmp.getContext('2d')
-         .drawImage(pdfCanvas,
-                    rect.x, rect.y, rect.w, rect.h,
-                    0, 0, rect.w, rect.h);
-      // download for now
-      tmp.toBlob(blob => {
-        const link = document.createElement('a');
-        link.download = 'panel.png';
-        link.href = URL.createObjectURL(blob);
-        link.click();
-      });
-      // if you want to send to FastAPI instead:
-      // let fd = new FormData();
-      // fd.append('file', blob, 'panel.png');
-      // fd.append('coords', JSON.stringify(rect));
-      // fetch('/api/enhance', {method:'POST', body:fd})
-      //   .then(r=>r.blob()).then(/* show improved panel */);
+  if (!rects.length) {
+    return alert('No panels selected.');
+  }
 
-      // reset selection state
-      selecting = false;
-      overlay.style.pointerEvents = 'none';
-      octx.clearRect(0,0,overlay.width,overlay.height);
-      rect = null;
-      btnSelect.textContent = 'Select Panel';
-    });
+  rects.forEach((r, i) => {
+    // 1) Render the panel into a temp canvas
+    const tmp = document.createElement('canvas');
+    tmp.width = r.w;
+    tmp.height = r.h;
+    tmp.getContext('2d')
+       .drawImage(
+         pdfCanvas,
+         r.x, r.y, r.w, r.h,
+         0, 0, r.w, r.h
+       );
+
+    // 2) Convert to Blob and send to your FastAPI refine endpoint
+    tmp.toBlob(async (blob) => {
+      const fd = new FormData();
+      // 'file' matches your endpoint parameter name
+      fd.append('file', blob, `panel-${i + 1}.png`);
+
+      try {
+        const resp = await fetch('/api/sketch/refine', {
+          method: 'POST',
+          body: fd
+        });
+
+        if (!resp.ok) {
+          console.error(`Panel ${i + 1} failed:`, await resp.text());
+          return;
+        }
+
+        const json = await resp.json();
+        console.log(`Panel ${i + 1} enqueued:`, json);
+        // Optionally, update your UI with job_id / status
+        // e.g. show “Panel 1: Pending (job ${json.job_id})”
+      } catch (err) {
+        console.error('Network error:', err);
+      }
+    }, 'image/png');
+  });
+});
+
+      // reset if you like
+      // rects = []; drawAll();
+      // setMode('none');
   </script>
 </body>
 </html>
