@@ -9,6 +9,7 @@ from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # Local
@@ -35,9 +36,17 @@ class TimerMiddleware(BaseHTTPMiddleware):
         response.headers["X-Process-Time"] = f"{elapsed:.3f}s"
         logger.debug(f"{request.method} {request.url.path} completed in {elapsed:.3f}s")
         return response
+    
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],        # TIGHTEN LATER
+    allow_methods=["*"],        # TIGHTEN LATER
+    allow_headers=["*"],        # TIGHTEN LATER
+)
 
 
-app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
+app.mount("/frontend", StaticFiles(directory=settings.FRONTEND_DIR), name="frontend")
 
 @app.post("/api/sketch/refine")
 async def refine_endpoint(file: UploadFile):

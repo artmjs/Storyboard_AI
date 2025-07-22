@@ -1,5 +1,6 @@
 import math
 from PIL import Image
+import io
 
 def _padding_overhead(orig_w: int, orig_h: int, A: int, B: int) -> int:
     
@@ -50,3 +51,10 @@ def crop_back(img: Image.Image, pad_xy: tuple[int,int], orig_size: tuple[int,int
     pad_x, pad_y = pad_xy
     orig_w, orig_h = orig_size
     return img.crop((pad_x, pad_y, pad_x + orig_w, pad_y + orig_h))
+
+def pil_to_buffer(img: Image.Image, name: str) -> io.BytesIO:
+    buf = io.BytesIO()
+    buf.name = name
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf

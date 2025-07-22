@@ -22,13 +22,18 @@
   <input type="file" id="fileInput" accept="application/pdf" />
   <button id="btnAdd">Add Panel</button>
   <button id="btnRemove">Remove Panel</button>
-  <button id="btnCrop">Crop & Download All</button>
+  <button id="btnClear">Clear All Panels</button>
+  <button id="btnCrop">Send for Refine</button>
+
   <div id="container">
     <canvas id="pdfCanvas"></canvas>
     <canvas id="overlay"></canvas>
   </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.min.js"></script>
   <script>
+
+    const API_BASE = 'http://localhost:8000';
     // PDF.js setup
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.worker.min.js';
@@ -41,6 +46,7 @@
     const octx      = overlay.getContext('2d');
     const btnAdd    = document.getElementById('btnAdd');
     const btnRemove = document.getElementById('btnRemove');
+    const btnClear  = document.getElementById('btnClear');
     const btnCrop   = document.getElementById('btnCrop');
 
     // State
@@ -96,6 +102,15 @@
     btnAdd   .addEventListener('click', () => setMode(mode === 'add' ? 'none' : 'add'));
     btnRemove.addEventListener('click', () => setMode(mode === 'remove' ? 'none' : 'remove'));
 
+    // 2a) Clear all panels
+    btnClear.addEventListener('click', () => {
+      rects = [];
+      startPt = activeRect = null;
+      setMode('none');
+      drawAll();
+      console.log('[debug] cleared all panels');
+    });
+
     // 3) Drawing new rectangles
     overlay.addEventListener('mousedown', e => {
       if (mode !== 'add') return;
@@ -121,7 +136,6 @@
     overlay.addEventListener('click', e => {
       if (mode !== 'remove') return;
       const px = e.offsetX, py = e.offsetY;
-      // find topmost rect under click
       for (let i = rects.length - 1; i >= 0; i--) {
         const r = rects[i];
         if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
@@ -132,55 +146,48 @@
       }
     });
 
-    // 5) Crop & download all panels
+    // 5) Crop & send for refine
     btnCrop.addEventListener('click', () => {
-  if (!rects.length) {
-    return alert('No panels selected.');
-  }
-
-  rects.forEach((r, i) => {
-    // 1) Render the panel into a temp canvas
-    const tmp = document.createElement('canvas');
-    tmp.width = r.w;
-    tmp.height = r.h;
-    tmp.getContext('2d')
-       .drawImage(
-         pdfCanvas,
-         r.x, r.y, r.w, r.h,
-         0, 0, r.w, r.h
-       );
-
-    // 2) Convert to Blob and send to your FastAPI refine endpoint
-    tmp.toBlob(async (blob) => {
-      const fd = new FormData();
-      // 'file' matches your endpoint parameter name
-      fd.append('file', blob, `panel-${i + 1}.png`);
-
-      try {
-        const resp = await fetch('/api/sketch/refine', {
-          method: 'POST',
-          body: fd
-        });
-
-        if (!resp.ok) {
-          console.error(`Panel ${i + 1} failed:`, await resp.text());
-          return;
-        }
-
-        const json = await resp.json();
-        console.log(`Panel ${i + 1} enqueued:`, json);
-        // Optionally, update your UI with job_id / status
-        // e.g. show “Panel 1: Pending (job ${json.job_id})”
-      } catch (err) {
-        console.error('Network error:', err);
+      console.log('[debug] Send for Refine clicked, rects=', rects);
+      if (!rects.length) {
+        return alert('No panels selected.');
       }
-    }, 'image/png');
-  });
-});
 
-      // reset if you like
-      // rects = []; drawAll();
-      // setMode('none');
+      rects.forEach((r, i) => {
+        // 1) Render the panel into a temp canvas
+        const tmp = document.createElement('canvas');
+        tmp.width = r.w;
+        tmp.height = r.h;
+        tmp.getContext('2d').drawImage(
+          pdfCanvas,
+          r.x, r.y, r.w, r.h,
+          0, 0, r.w, r.h
+        );
+
+        // 2) Convert to Blob and send to FastAPI
+        tmp.toBlob(async blob => {
+          console.log(`[debug] panel ${i+1} blob ready, size=`, blob.size);
+          const fd = new FormData();
+          fd.append('file', blob, `panel-${i+1}.png`);
+
+          try {
+            const resp = await fetch(`${API_BASE}/api/sketch/refine`, {
+              method: 'POST',
+              body: fd
+            });
+            console.log(`[debug] fetch returned:`, resp);
+            if (!resp.ok) {
+              console.error(`Panel ${i+1} failed:`, await resp.text());
+              return;
+            }
+            const json = await resp.json();
+            console.log(`Panel ${i+1} enqueued:`, json);
+          } catch (err) {
+            console.error('Network error:', err);
+          }
+        }, 'image/png');
+      });
+    });
   </script>
 </body>
 </html>

@@ -6,16 +6,19 @@ import asyncio
 from pathlib import Path
 
 from PIL import Image
+from openai import AsyncOpenAI
 from celery.utils.log import get_task_logger
 
 from celery_worker import celery
 from app.core.config import settings
 from app.core.redis_client import redis_client
-from app.services.image_utils import pad_to_aspect, crop_back
+from app.services.image_utils import pad_to_aspect, crop_back, pil_to_buffer
 from app.services.openai_client import client, encode_image_bytes
 
 
 logger = get_task_logger(__name__)
+
+client = AsyncOpenAI()
 
 @celery.task(name="tasks.refine_sketch", acks_later=True)
 def refine_sketch_task(image_id: str, prompt: str, sketch_bytes: bytes) -> str: 
@@ -23,22 +26,21 @@ def refine_sketch_task(image_id: str, prompt: str, sketch_bytes: bytes) -> str:
     img = Image.open(io.BytesIO(sketch_bytes)).convert("RGBA")
     padded_img, mask_rgba, offset = pad_to_aspect(img)
 
-    buf_img = io.BytesIO()
+    buf_img  = io.BytesIO()
     buf_mask = io.BytesIO()
-    padded_img.save(buf_img, format="PNG"); buf_img.seek(0)
-    mask_rgba.save(buf_mask, format="PNG"); buf_mask.seek(0)
+    padded_img.save(buf_img,  format="PNG"); buf_img.seek(0)
+    mask_rgba.save(buf_mask,  format="PNG"); buf_mask.seek(0)
 
+    b64_img  = base64.b64encode(buf_img.getvalue()).decode("ascii")
+    b64_mask = base64.b64encode(buf_mask.getvalue()).decode("ascii")
 
-
-
+    # start the refine and log it
     task_id = refine_sketch_task.request.id
-    # b64 = encode_image_bytes(sketch_bytes)
-    # data_uri = f"data:image/png;base64,{b64}"
-
-    logger.info(f"[{task_id}] Starting OpenAI refine")
+    logger.info(f"[{task_id}] Starting OpenAI refine via inline base64")
+    task_id = refine_sketch_task.request.id
     t0 = time.time()
 
-
+    
     response = asyncio.get_event_loop().run_until_complete(
         client.responses.create(
         model="gpt-4.1-mini",
@@ -47,14 +49,14 @@ def refine_sketch_task(image_id: str, prompt: str, sketch_bytes: bytes) -> str:
                 "role": "user",
                 "content": [
                     {"type": "input_text", "text": prompt},
-                    {"type": "input_image", "file_id": buf_img}
+                    {"type": "input_image", "image_url": f"data:image/png;base64,{b64_img}"}
                 ]
             }
         ],
         tools=[{
             "type":"image_generation",
             "quality": "high",
-            "input_image_mask": {"file_id": buf_mask}
+            "input_image_mask": {"image_url": f"data:image/png;base64,{b64_mask}"}
             }]
         ))
 
@@ -65,36 +67,16 @@ def refine_sketch_task(image_id: str, prompt: str, sketch_bytes: bytes) -> str:
     logger.info(f"[{task_id}] OpenAI returned {len(img_bytes)} bytes in {time.time()-t0:.3f}s")
 
     # decode, crop to original size
+    edited = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
 
-    edited = Image.open(io.BytesIO(base64.b64decode(img_bytes))).convert("RGBA")
-    final = crop_back(edited, offset, img.size)
-
+    # final = crop_back(edited, offset, img.size)
+    final = edited
     out_dir = Path(settings.STATIC_DIR) / image_id
     out_dir.mkdir(exist_ok=True, parents=True)
     out_path = out_dir / "v1.png"
     with open(out_path, "wb") as f:
         final.save(f, format="PNG")
 
-    # ########### DEBUG FOR THE UTILS
-
-    # output_dir = "image_util_debug"
-    # os.makedirs(output_dir, exist_ok=True)
-
-    # images = {
-    #     "mask": mask_rgba,
-    #     "padded_image": padded_img,
-    #     "final": final
-    # }
-
-    # for fname, img in images.items():
-
-    #     temp_out = os.path.join(output_dir, f"{fname}".png)
-    #     img.save(temp_out)
-    #     print(f"saved {fname!r} to {temp_out}")
-
-
-
-    # ################
     logger.info(f"[{task_id}] Saved initial panel to {out_path}")
 
     # persist metadata into Redis:
