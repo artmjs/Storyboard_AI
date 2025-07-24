@@ -9,6 +9,8 @@
   --text-light: #666;
   --primary: #4c6ef5;
   --primary-hover: #3b5bdb;
+  --choose-file: #ff922b;
+  --choose-file-hover: #e8590c;
 }
 
 * {
@@ -25,24 +27,6 @@ body {
 h1 {
   margin-bottom: var(--gap);
   font-size: 2rem;
-}
-
-button {
-  font: inherit;
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: var(--radius);
-  background: var(--primary);
-  color: white;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-button:hover {
-  background: var(--primary-hover);
-}
-button:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 
 #btnSendRefine {
@@ -122,4 +106,47 @@ body.mode-remove #overlay {
 
 .toolbar button.active {
   filter: brightness(0.85);
+}
+
+/* Button styling */ 
+
+button,
+#fileInput::file-selector-button {
+  display: inline-block;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.2;
+  padding: 0.5rem 1rem;
+  min-width: 8rem;
+  text-align: center;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s, filter 0.2s;
+  box-sizing: border-box;
+}
+
+/* hover state */
+button:hover,
+#fileInput::file-selector-button:hover {
+  background: var(--primary-hover);
+  filter: none;
+}
+
+/* per‐mode “active” state (e.g. Add/Remove toggled) */
+button.active {
+  filter: brightness(0.85);
+}
+
+/* Override just the “Choose file” button to be orange */
+#fileInput::file-selector-button {
+  background: var(--choose-file);
+  color: white;
+}
+
+/* And its hover state */
+#fileInput::file-selector-button:hover {
+  background: var(--choose-file-hover);
 }
