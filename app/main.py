@@ -48,6 +48,8 @@ app.add_middleware(
 
 app.mount("/frontend", StaticFiles(directory=settings.FRONTEND_DIR), name="frontend")
 
+app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
+
 @app.post("/api/sketch/refine")
 async def refine_endpoint(file: UploadFile):
 
@@ -74,11 +76,13 @@ async def refine_endpoint(file: UploadFile):
     logger.debug(f"Enqueued job {job.id} in {enqueue_time:.3f}s")
 
     # store job id in a redis set
-    redis_client.sadd("jobs", job.id)
+    redis_client.hset(f"job:{job.id}", "image_id", image_id)
 
     # return immediately
     resp = JSONResponse({
-        "job_id": job.id, "status": "PENDING", "image_id": image_id
+        "job_id": job.id, 
+        "status": "PENDING", 
+        "image_id": image_id
         })
     resp.headers["X-Enqueue-Time"] = f"{enqueue_time:.3f}s"
     return resp
@@ -117,18 +121,29 @@ def list_all_jobs():
 
 # get one
 @app.get("/api/sketch/status/{job_id}")
-def get_job_status(job_id: str):
-    
+async def get_sketch_status(job_id: str):
+    # 1) Grab the AsyncResult
+    result = AsyncResult(job_id, app=celery)
 
-    if not redis_client.sismember("jobs", job_id):
-        raise HTTPException(404, detail="Unknown job_id")
-    res = AsyncResult(job_id, app=celery)
-    entry = {"job_id": job_id, "status": res.state}
-    if res.state == "SUCCESS":
-        entry["url"] = res.result
-    elif res.state == "FAILURE":
-        entry["error"] = str(res.result)
-    return entry
+    # 2) Always return the current Celery status
+    status = result.status  # "PENDING", "STARTED", "SUCCESS", "FAILURE", etc.
+
+    # 3) On success, also return the URL your task returned
+    if status == "SUCCESS":
+        try:
+            url = result.get(timeout=1, propagate=False)
+        except Exception as e:
+            # Something went wrong pulling the result
+            raise HTTPException(500, detail="Error fetching result")
+
+        return {"status": "SUCCESS", "url": url}
+
+    # 4) On failure, you could inspect result.traceback if you want
+    if status == "FAILURE":
+        return {"status": "FAILURE"}
+
+    # 5) Otherwise just return the in‐flight status
+    return {"status": status}
 
 @app.get("/health")
 def health():

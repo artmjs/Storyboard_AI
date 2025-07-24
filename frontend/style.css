@@ -1,0 +1,125 @@
+:root {
+  --gap: 1rem;
+  --radius: 0.5rem;
+  --shadow: 0 2px 8px rgba(0,0,0,0.1);
+  --font: 'Segoe UI', Roboto, sans-serif;
+  --bg-card: #fff;
+  --bg-page: #f7f8fa;
+  --text-dark: #333;
+  --text-light: #666;
+  --primary: #4c6ef5;
+  --primary-hover: #3b5bdb;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg-page);
+  color: var(--text-dark);
+  padding: var(--gap);
+}
+
+h1 {
+  margin-bottom: var(--gap);
+  font-size: 2rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+button:hover {
+  background: var(--primary-hover);
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+#btnSendRefine {
+  margin-bottom: var(--gap);
+}
+
+.panel-card {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.panel-card h2 {
+  margin-top: 0;
+  margin-bottom: var(--gap);
+  font-size: 1.25rem;
+}
+
+.panel-card .remove-panel {
+  position: absolute;
+  top: var(--gap);
+  right: var(--gap);
+  background: #e03131;
+}
+.panel-card .remove-panel:hover {
+  background: #c92a2a;
+}
+
+.images {
+  display: flex;
+  gap: var(--gap);
+}
+.before-container,
+.after-container {
+  flex: 1;
+  background: #fafbfc;
+  padding: var(--gap);
+  border-radius: var(--radius);
+  text-align: center;
+}
+.before-container p,
+.after-container p {
+  margin: 0 0 var(--gap) 0;
+  font-weight: 600;
+  color: var(--text-light);
+}
+.before-container img,
+.after-container img {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 4px rgba(0,0,0,0.05);
+}
+.spinner {
+  display: inline-block;
+  font-style: italic;
+  color: var(--text-light);
+}
+
+/* overlay must start ignoring clicks until JS enables it */
+#overlay {
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* ensure it’s on top of the PDF canvas */
+  z-index: 10;
+}
+
+/* when we’re in “add” or “remove” mode we add class="active" to the body: */
+body.mode-add   #overlay,
+body.mode-remove #overlay {
+  pointer-events: auto;
+}
+
+.toolbar button.active {
+  filter: brightness(0.85);
+}

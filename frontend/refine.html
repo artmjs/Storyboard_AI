@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <title>Refine Your Panels</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .panel-card { position: relative; margin-bottom: 30px; border: 1px solid #ccc; padding: 10px; }
+    .panel-card h2 { margin: 0 0 10px; }
+    .images { display: flex; gap: 20px; }
+    .images img { max-width: 100%; height: auto; display: block; }
+    .before-container, .after-container { flex: 1; text-align: center; }
+    .spinner { font-style: italic; }
+    .remove-panel { position: absolute; top: 10px; right: 10px; }
+    #btnSendRefine { margin-bottom: 20px; padding: 10px 20px; }
+  </style>
+</head>
+<body>
+  <h1>Refine Your Panels</h1>
+  <button id="btnSendRefine">Send for Refine</button>
+  <div id="panelList"></div>
+
+  <script>
+    window.addEventListener('unhandledrejection', event => {
+        // If it’s the chain-disconnected error, swallow it
+        if (event.reason && event.reason.code === 4900) {
+             console.debug('Suppressed injected provider error:', event.reason.message);
+         event.preventDefault();
+        }
+    }); 
+    
+    const API_BASE = 'http://localhost:8000';
+    const list = document.getElementById('panelList');
+    const btn  = document.getElementById('btnSendRefine');
+
+    // ————————————————————————
+    // 1) Load & debug panels
+    // ————————————————————————
+    console.log("🔍 refine.html script loaded");
+    const raw = sessionStorage.getItem('panelsToRefine');
+    console.log("🔍 raw panelsToRefine:", raw);
+    let panels = JSON.parse(raw || '[]');
+    console.log("🔍 panels array:", panels);
+
+    // ————————————————————————
+    // 2) Render panels
+    // ————————————————————————
+    function renderPanels() {
+  list.innerHTML = '';
+
+  if (!panels.length) {
+    // Empty‐state markup + Back button
+    list.innerHTML = `
+      <div class="no-panels" style="text-align:center; padding:2rem;">
+        <p>No panels to refine. Go back and select some.</p>
+        <button id="btnGoBack"> Back to Selector</button>
+      </div>
+    `;
+
+    // Wire up the Back button
+    document
+      .getElementById('btnGoBack')
+      .addEventListener('click', () => {
+        window.location.href = 'index.html';
+      });
+
+    return;
+  }
+        panels.forEach(panel => {
+        console.log("📦 rendering panel", panel.id);
+        const card = document.createElement('div');
+        card.className = 'panel-card';
+        card.dataset.id = panel.id;
+
+        // Remove button
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = 'Remove';
+        removeBtn.className = 'remove-panel';
+        removeBtn.addEventListener('click', () => {
+            panels = panels.filter(p => p.id !== panel.id);
+            sessionStorage.setItem('panelsToRefine', JSON.stringify(panels));
+            renderPanels();
+        });
+        card.appendChild(removeBtn);
+
+        // Title
+        const title = document.createElement('h2');
+        title.textContent = `Panel ${panel.id}`;
+        card.appendChild(title);
+
+        // Before / After containers
+        const imagesDiv = document.createElement('div');
+        imagesDiv.className = 'images';
+
+        const beforeContainer = document.createElement('div');
+        beforeContainer.className = 'before-container';
+        beforeContainer.innerHTML =
+            `<p>Before</p><img src="${panel.beforeUrl}" />`;
+
+        const afterContainer = document.createElement('div');
+        afterContainer.className = 'after-container';
+        afterContainer.innerHTML =
+            `<p>After</p><span class="spinner">⏳ Pending</span><img style="display:none" />`;
+
+        imagesDiv.append(beforeContainer, afterContainer);
+        card.appendChild(imagesDiv);
+        list.appendChild(card);
+        });
+    }
+    renderPanels();
+
+    // ————————————————————————
+    // 3) Send for Refine + Polling
+    // ————————————————————————
+    btn.addEventListener('click', () => {
+        btn.disabled = true;
+        btn.textContent = 'Processing…';
+
+        panels.forEach(panel => {
+        fetch(panel.beforeUrl)
+            .then(r => r.blob())
+            .then(blob => {
+            const fd = new FormData();
+            fd.append('file', blob, `panel-${panel.id}.png`);
+            return fetch(`${API_BASE}/api/sketch/refine`, {
+                method: 'POST',
+                body: fd
+            });
+            })
+            .then(r => r.json())
+            .then(({ job_id }) => {
+            panel.jobId = job_id;
+            console.log(`🚀 panel ${panel.id} job:`, job_id);
+            startPolling(panel.id, job_id);
+            })
+            .catch(err => console.error('Enqueue error:', err));
+        });
+    });
+
+    function startPolling(panelId, jobId) {
+        const card    = document.querySelector(`.panel-card[data-id="${panelId}"]`);
+        const spinner = card.querySelector('.spinner');
+        const afterImg= card.querySelector('.after-container img');
+
+        console.log(`▶️ startPolling(panelId=${panelId}, jobId=${jobId})`);
+
+        const interval = setInterval(async () => {
+            const statusUrl = `${API_BASE}/api/sketch/status/${jobId}`;
+            console.log("⏱️ polling", statusUrl);
+
+            let res, data;
+            try {
+            res = await fetch(statusUrl);
+            } catch (err) {
+            console.error("❌ fetch failed:", err);
+            spinner.textContent = '❌ Network error';
+            clearInterval(interval);
+            return;
+            }
+
+            if (!res.ok) {
+            const txt = await res.text().catch(()=>"<no body>");
+            console.error("❌ HTTP", res.status, txt);
+            spinner.textContent = `❌ ${res.status}`;
+            clearInterval(interval);
+            return;
+            }
+
+            try {
+            data = await res.json();
+            } catch (err) {
+            console.error("❌ invalid JSON:", err);
+            spinner.textContent = '❌ Bad JSON';
+            clearInterval(interval);
+            return;
+            }
+
+            console.log("🔄 status response:", data);
+            // inspect the raw payload, maybe it's data.imageUrl or data.staticUrl
+            const status = data.status;
+            const imgKey = data.url !== undefined
+            ? "url"
+            : data.imageUrl !== undefined
+                ? "imageUrl"
+                : Object.keys(data).find(k => typeof data[k]==="string" && data[k].startsWith("/"));
+
+            const urlVal = data[imgKey];
+            console.log("📦 interpreted:", { status, imgKey, urlVal });
+
+            if (status === 'SUCCESS' && urlVal) {
+            clearInterval(interval);
+            const fullUrl = `${API_BASE}${urlVal.startsWith('/') ? urlVal : '/' + urlVal}`;
+            console.log("✅ SUCCESS! setting <img> src to", fullUrl);
+            spinner.style.display = 'none';
+            afterImg.src = fullUrl;
+            afterImg.style.display = 'block';
+            }
+            else if (status === 'FAILURE') {
+            clearInterval(interval);
+            spinner.textContent = '❌ Error';
+            }
+            else {
+            spinner.textContent = status;
+            }
+        }, 2000);
+        }
+
+</script>
+</body>
+</html>
