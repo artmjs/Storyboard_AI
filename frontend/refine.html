@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="/frontend/style.css">
   <meta charset="UTF-8">
   <title>Refine Your Panels</title>
   <style>
@@ -105,10 +105,64 @@
 
         imagesDiv.append(beforeContainer, afterContainer);
         card.appendChild(imagesDiv);
+
+        const editSection = document.createElement('div');
+        editSection.className = 'edit-section';
+        editSection.innerHTML = `
+          <textarea class="edit-prompt" 
+            placeholder="Enter a follow-up prompt…" 
+            rows="2"></textarea>
+          <button class="btnEdit">Send for Edit</button>
+          <span class="edit-spinner" style="display:none">⏳ Pending edit…</span>
+        `;
+
+        card.appendChild(editSection);
         list.appendChild(card);
         });
     }
     renderPanels();
+
+      list.addEventListener('click', async (e) => {
+      if (!e.target.classList.contains('btnEdit')) return;
+
+      const btn     = e.target;
+      const card    = btn.closest('.panel-card');
+      const panelId = card.dataset.id;
+      const panel   = panels.find(p => p.id == panelId);
+      const prompt  = card.querySelector('.edit-prompt').value.trim();
+      const spinner = card.querySelector('.edit-spinner');
+      const afterImg= card.querySelector('.after-container img');
+
+      if (!prompt) {
+        alert('Please enter a prompt for the edit.');
+        return;
+      }
+
+      // disable UI
+      btn.disabled      = true;
+      spinner.style.display = 'inline';
+
+      try {
+        // 3) Call your edit endpoint
+        const res = await fetch(`${API_BASE}/api/sketch/edit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_id: panel.imageId,
+            prompt:   prompt
+          })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const { job_id } = await res.json();
+
+        // 4) Poll for the edit result
+        startPollingEdit(panelId, job_id);
+      } catch (err) {
+        console.error('Edit enqueue error:', err);
+        spinner.textContent = '❌ Error';
+        btn.disabled = false;
+      }
+    });
 
     // ————————————————————————
     // 3) Send for Refine + Polling
@@ -129,8 +183,9 @@
             });
             })
             .then(r => r.json())
-            .then(({ job_id }) => {
+            .then(({ job_id, image_id }) => {
             panel.jobId = job_id;
+            panel.imageId = image_id;
             console.log(`🚀 panel ${panel.id} job:`, job_id);
             startPolling(panel.id, job_id);
             })
@@ -205,6 +260,45 @@
             }
         }, 2000);
         }
+
+  function startPollingEdit(panelId, jobId) {
+        const card        = document.querySelector(`.panel-card[data-id="${panelId}"]`);
+        const editSpinner = card.querySelector('.edit-spinner');
+        const btnEdit     = card.querySelector('.btnEdit');
+        const afterImg    = card.querySelector('.after-container img');
+
+        const interval = setInterval(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/api/sketch/status/${jobId}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const { status, url } = await res.json();
+
+            if (status === 'SUCCESS' && url) {
+              clearInterval(interval);
+              editSpinner.style.display = 'none';
+              btnEdit.disabled = false;
+
+              // swap in the new version
+              const fullUrl = `${API_BASE}${url.startsWith('/') ? url : '/' + url}`;
+              afterImg.src = fullUrl;
+            }
+            else if (status === 'FAILURE') {
+              clearInterval(interval);
+              editSpinner.textContent = '❌ Edit failed';
+              btnEdit.disabled = false;
+            }
+            else {
+              editSpinner.textContent = status;
+            }
+          } catch (err) {
+            console.error('Polling edit error:', err);
+            clearInterval(interval);
+            editSpinner.textContent = '❌ Error';
+            btnEdit.disabled = false;
+          }
+        }, 2000);
+      }
+
 
 </script>
 </body>

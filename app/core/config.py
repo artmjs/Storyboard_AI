@@ -8,8 +8,14 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str
     STATIC_DIR: Path = Path("static")
     FRONTEND_DIR: str = "frontend"
+    MODIFICATION_PROMPT: str = (
+        "MAKE EDIT STRICTLY WITHIN MASK BOUNDARIES. DO NOT RESCALE ELEMENTS AND KEEP THEM THE SAME SIZE. " \
+        "KEEP ELEMENTS OUTSIDE THE MASK TRANSPARENT (NO NOT ADD ANYTHING OUTSIDE THE SUPPLIED MASK)."
+    )
     FIRST_REFINE_PROMPT: str = (
-        "MAKE EDIT STRICTLY WITHIN MASK BOUNDARIES. If any text is present on the sketch, do not remove it." \
+        "MAKE EDIT STRICTLY WITHIN MASK BOUNDARIES. DO NOT RESCALE ELEMENTS AND KEEP THEM THE SAME SIZE. " \
+        "KEEP ELEMENTS OUTSIDE THE MASK TRANSPARENT (NO NOT ADD ANYTHING OUTSIDE THE SUPPLIED MASK)." \
+        "If any text is present on the sketch, do not remove it." \
         "Please clean up and sharpen the existing line work, improve clarity and contrast, " \
         "and correct any small drawing inconsistencies—while preserving the original art style, " \
         "character designs, and exact object/character positions. " \

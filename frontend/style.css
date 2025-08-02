@@ -150,3 +150,64 @@ button.active {
 #fileInput::file-selector-button:hover {
   background: var(--choose-file-hover);
 }
+
+.edit-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  margin-top: var(--gap);
+}
+
+/* Full-width, non-resizable textarea */
+.edit-prompt {
+  width: 100%;
+  resize: none;            /* disable drag-to-resize */
+  min-height: 4rem;        /* or whatever row-count you like */
+  font: inherit;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: var(--radius);
+  box-sizing: border-box;
+}
+
+/* Place the button below, left-aligned */
+.btnEdit {
+  align-self: flex-start;  /* stick to the left */
+  padding: 0.5rem 1rem;
+  background: #4c6ef5;     /* your chosen color */
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btnEdit:hover {
+  background: #3b5bdb;
+}
+
+/* Keep the spinner on the same line as the button */
+.edit-spinner {
+  margin-left: var(--gap);
+  align-self: center;
+}
+
+.panel-card > .edit-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  margin-top: var(--gap);
+}
+
+.panel-card .edit-prompt {
+  width: 100%;
+  resize: none;
+  min-height: 4rem;
+}
+
+.panel-card .btnEdit {
+  align-self: flex-start;
+}
+
+.panel-card .edit-spinner {
+  margin-left: var(--gap);
+}

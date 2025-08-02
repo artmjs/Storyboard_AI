@@ -46,7 +46,7 @@ app.add_middleware(
 )
 
 
-app.mount("/frontend", StaticFiles(directory=settings.FRONTEND_DIR), name="frontend")
+app.mount("/frontend", StaticFiles(directory=settings.FRONTEND_DIR, html=True), name="frontend")
 
 app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
 
@@ -122,13 +122,13 @@ def list_all_jobs():
 # get one
 @app.get("/api/sketch/status/{job_id}")
 async def get_sketch_status(job_id: str):
-    # 1) Grab the AsyncResult
+    # Grab the AsyncResult
     result = AsyncResult(job_id, app=celery)
 
-    # 2) Always return the current Celery status
+    # Always return the current Celery status
     status = result.status  # "PENDING", "STARTED", "SUCCESS", "FAILURE", etc.
 
-    # 3) On success, also return the URL your task returned
+    # On success, also return the URL your task returned
     if status == "SUCCESS":
         try:
             url = result.get(timeout=1, propagate=False)
@@ -138,11 +138,11 @@ async def get_sketch_status(job_id: str):
 
         return {"status": "SUCCESS", "url": url}
 
-    # 4) On failure, you could inspect result.traceback if you want
+    # Failure
     if status == "FAILURE":
         return {"status": "FAILURE"}
 
-    # 5) Otherwise just return the in‐flight status
+    # 5) return the in‐flight status otherwise
     return {"status": status}
 
 @app.get("/health")

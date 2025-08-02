@@ -12,7 +12,7 @@ from celery.utils.log import get_task_logger
 from celery_worker import celery
 from app.core.config import settings
 from app.core.redis_client import redis_client
-from app.services.image_utils import pad_to_aspect, crop_back, pil_to_buffer
+from app.services.image_utils import pad_to_aspect, crop_back_by_mask, pil_to_buffer
 from app.services.openai_client import client, encode_image_bytes
 
 
@@ -55,6 +55,7 @@ def refine_sketch_task(image_id: str, prompt: str, sketch_bytes: bytes) -> str:
         ],
         tools=[{
             "type":"image_generation",
+            "input_fidelity": "high",
             "quality": "high",
             "input_image_mask": {"image_url": f"data:image/png;base64,{b64_mask}"}
             }]
@@ -70,14 +71,25 @@ def refine_sketch_task(image_id: str, prompt: str, sketch_bytes: bytes) -> str:
     edited = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
 
     # final = crop_back(edited, offset, img.size)
-    final = edited
+    final = crop_back_by_mask(edited, mask_rgba)
     out_dir = Path(settings.STATIC_DIR) / image_id
     out_dir.mkdir(exist_ok=True, parents=True)
+
     out_path = out_dir / "v1.png"
     with open(out_path, "wb") as f:
         final.save(f, format="PNG")
-
     logger.info(f"[{task_id}] Saved initial panel to {out_path}")
+
+    # PRE CROP AND INPUT IMAGE SAVED FOR DEBUGGING PURPOSES
+    pre_crop_path = out_dir / "v0.png"
+    with open(pre_crop_path, "wb") as f:
+        edited.save(f, format="PNG")
+    logger.info(f"[{task_id}] Saved pre-crop panel to {pre_crop_path}")
+
+    before_path = out_dir / "v_before.png"
+    with open(before_path, "wb") as f:
+        padded_img.save(f, format="PNG")
+    logger.info(f"[{task_id}] Saved BEFORE VERSION panel to {before_path}")
 
     # persist metadata into Redis:
     #    - the OpenAI response id for chaining
@@ -100,6 +112,9 @@ def refine_with_context_task(image_id: str, prompt: str) -> str:
         raise RuntimeError(f"Unknown image_id {image_id}")
     prev_resp = data["response_id"]
     version   = int(data["latest_version"])
+
+    # TO BE TESTED IF THE MASK IS NECESSARY
+    # edit_prompt = settings.MODIFICATION_PROMPT + prompt
 
     # call multiturn openai 
     resp = client.responses.create(
@@ -133,5 +148,5 @@ def refine_with_context_task(image_id: str, prompt: str) -> str:
         "latest_version": new_v
     })
 
-    # 5) Return the new URL
+    # Return the new URL
     return f"/static/{image_id}/v{new_v}.png"

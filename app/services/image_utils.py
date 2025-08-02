@@ -52,6 +52,30 @@ def crop_back(img: Image.Image, pad_xy: tuple[int,int], orig_size: tuple[int,int
     orig_w, orig_h = orig_size
     return img.crop((pad_x, pad_y, pad_x + orig_w, pad_y + orig_h))
 
+
+def crop_back_by_mask(edited: Image.Image, mask: Image.Image) -> Image.Image:
+    pad_w, pad_h = mask.size
+    edited_w, edited_h = edited.size
+
+    gray = mask.split()[-1]
+    bbox = gray.getbbox()
+    if bbox is None: 
+        return edited
+    
+    x0, y0, x1, y1 = bbox
+
+    x_scale = edited_w / pad_w
+    y_scale = edited_h / pad_h
+    
+    crop_box = (
+        int(x0 * x_scale),
+        int(y0 * y_scale),
+        int(x1 * x_scale),
+        int(y1 * y_scale),
+    )
+
+    return edited.crop(crop_box)
+
 def pil_to_buffer(img: Image.Image, name: str) -> io.BytesIO:
     buf = io.BytesIO()
     buf.name = name
