@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Merge Edited Panels</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    #container { position: relative; margin-top: 1rem; }
+    canvas { border: 1px solid #ccc; display: block; }
+    #overlay { position: absolute; top: 0; left: 0; }
+    #btnMerge { margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Merge Edited Panels Back Into PDF</h1>
+  <button id="btnMerge">Render with Edits</button>
+
+  <div id="container">
+    <canvas id="pdfCanvas"></canvas>
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.min.js"></script>
+  <script type=module>
+    import { get } from 'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
+
+    const scale     = 1.5;
+    const API_BASE  = 'http://localhost:8000';
+    const btnMerge  = document.getElementById('btnMerge');
+    const pdfCanvas = document.getElementById('pdfCanvas');
+    const overlay   = document.getElementById('overlay');
+    const pdfCtx    = pdfCanvas.getContext('2d');
+    const olCtx     = overlay.getContext('2d');
+    let viewport;
+
+    (async () => {
+    // 1) FETCH the File back from IndexedDB
+    const file = await get('current-pdf');
+    if (!file) {
+      document.body.innerHTML =
+        '<p>No PDF found in IndexedDB. Please go back and re-select.</p>';
+      return;
+    }
+
+    // convert the pdf to ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+
+    // pdfjsLib to render page
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.worker.min.js';
+    const pdf  = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+    viewport   = page.getViewport({ scale });
+
+    // size canvases
+    [pdfCanvas, overlay].forEach(c => {
+      c.width  = viewport.width;
+      c.height = viewport.height;
+    });
+
+    // draw the pdf page
+    await page.render({ canvasContext: pdfCtx, viewport }).promise;
+    })();
+
+    // 3) When the user clicks "Render with Edits"
+    btnMerge.addEventListener('click', () => {
+      console.log('🔘 Merge button clicked');
+      
+      // 1) Grab panels
+      const rawPanels = sessionStorage.getItem('panelsToRefine') || '[]';
+      let panels;
+      try {
+        panels = JSON.parse(rawPanels);
+      } catch (e) {
+        console.error('❌ panelsToRefine not valid JSON:', rawPanels);
+        return;
+      }
+      console.log('🗂️ panels:', panels);
+
+      // 2) Bail if nothing to draw
+      if (!panels.length) {
+        console.warn('⚠️ no panelsToRefine found');
+        return;
+      }
+
+      // 3) Clear and draw
+      olCtx.clearRect(0, 0, overlay.width, overlay.height);
+      panels.forEach(async panel => {
+        console.log(`📌 drawing panel ${panel.id} at`, panel.coords, 'from', panel.afterUrl);
+        const img = new Image();
+        img.src = panel.afterUrl;
+        try {
+          await img.decode();
+        } catch (e) {
+          console.error('❌ error decoding image for panel', panel.id, panel.afterUrl, e);
+          return;
+        }
+        const { x, y, w, h } = panel.coords;
+        olCtx.drawImage(
+          img,
+          0,0, img.naturalWidth, img.naturalHeight,
+          x, y, w, h
+        );
+      });
+    });
+</script>
+</body>
+</html>

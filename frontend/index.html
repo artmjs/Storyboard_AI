@@ -24,7 +24,9 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.min.js"></script>
-  <script>
+  <script type=module>
+    import {set} from 'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
+
     // PDF.js setup
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.worker.min.js';
@@ -74,26 +76,38 @@
       }
     }
 
-    // 1) Load & render PDF
-    fileInput.addEventListener('change', async e => {
-      const data = await e.target.files[0].arrayBuffer();
-      const pdf  = await pdfjsLib.getDocument({data}).promise;
-      pdfPage = await pdf.getPage(1);
-      const v   = pdfPage.getViewport({scale});
+    // Load & render PDF
+      fileInput.addEventListener('change', async e => {
+        
+      const file = e.target.files[0];
+      console.log("fileInput.change handler fired");
+      if (!file) return;
+      // 1) Read once as ArrayBuffer for PDF.js
+      const arrayBuffer = await file.arrayBuffer();
+
+      // PDF.js rendering
+      const pdf     = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      pdfPage       = await pdf.getPage(1);
+      const v       = pdfPage.getViewport({ scale });
       [pdfCanvas, overlay].forEach(c => {
-        c.width = v.width;
+        c.width  = v.width;
         c.height = v.height;
       });
       await pdfPage.render({ canvasContext: pdfCtx, viewport: v }).promise;
       rects = [];
       setMode('none');
+      drawAll();
+      
+      // Storage in IndexedDB
+      await set('current-pdf', file);
+      console.log('PDF saved to IDB as "current-pdf"');
     });
-
-    // 2) Switch modes & clear
-    btnAdd.addEventListener('click',    () => setMode(mode==='add'?'none':'add'));
-    btnRemove.addEventListener('click', () => setMode(mode==='remove'?'none':'remove'));
-    btnClear.addEventListener('click',  () => {
-      rects = []; startPt = activeRect = null; setMode('none'); drawAll();
+    
+    // Switch modes & clear
+      btnAdd.addEventListener('click',    () => setMode(mode==='add'?'none':'add'));
+      btnRemove.addEventListener('click', () => setMode(mode==='remove'?'none':'remove'));
+      btnClear.addEventListener('click',  () => {
+        rects = []; startPt = activeRect = null; setMode('none'); drawAll();
     });
 
     // 3) Draw & remove rectangles
