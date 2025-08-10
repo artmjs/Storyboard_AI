@@ -4,106 +4,208 @@
   <meta charset="UTF-8" />
   <title>Merge Edited Panels</title>
   <link rel="stylesheet" href="style.css" />
-  <style>
-    body { font-family: sans-serif; padding: 1rem; }
-    #container { position: relative; margin-top: 1rem; }
-    canvas { border: 1px solid #ccc; display: block; }
-    #overlay { position: absolute; top: 0; left: 0; }
-    #btnMerge { margin-top: 1rem; }
-  </style>
 </head>
 <body>
   <h1>Merge Edited Panels Back Into PDF</h1>
-  <button id="btnMerge">Render with Edits</button>
 
-  <div id="container">
-    <canvas id="pdfCanvas"></canvas>
-    <canvas id="overlay"></canvas>
+  <div class="actions">
+    <button id="btnMerge">Render with Edits</button>
+    <button id="btnDownload" disabled>Download Merged PDF</button>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.min.js"></script>
-  <script type=module>
-    import { get } from 'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
+  <div class="workspace">
+    <div id="container">
+      <canvas id="pdfCanvas"></canvas>
+      <canvas id="overlay"></canvas>
+    </div>
 
-    const scale     = 1.5;
-    const API_BASE  = 'http://localhost:8000';
-    const btnMerge  = document.getElementById('btnMerge');
-    const pdfCanvas = document.getElementById('pdfCanvas');
-    const overlay   = document.getElementById('overlay');
-    const pdfCtx    = pdfCanvas.getContext('2d');
-    const olCtx     = overlay.getContext('2d');
-    let viewport;
+    <aside class="sidebar">
+      <h2>Pasted panels</h2>
+      <div id="editsList" class="edits-list">
+        <p class="empty-note">Nothing pasted yet.</p>
+      </div>
+    </aside>
+  </div>
+
+  <!-- PDF.js as global -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.min.js"></script>
+
+  <script type="module">
+    import { get } from 'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
+    import { PDFDocument } from 'https://cdn.skypack.dev/pdf-lib';
+
+    const scale       = 1.5;
+    const btnMerge    = document.getElementById('btnMerge');
+    const btnDownload = document.getElementById('btnDownload');
+    const pdfCanvas   = document.getElementById('pdfCanvas');
+    const overlay     = document.getElementById('overlay');
+    const pdfCtx      = pdfCanvas.getContext('2d');
+    const olCtx       = overlay.getContext('2d');
+    const editsList   = document.getElementById('editsList');
+
+    // --- storage helpers ---
+    const getPanels = () => JSON.parse(sessionStorage.getItem('panelsToRefine') || '[]');
+    const setPanels = (panels) => sessionStorage.setItem('panelsToRefine', JSON.stringify(panels));
 
     (async () => {
-    // 1) FETCH the File back from IndexedDB
-    const file = await get('current-pdf');
-    if (!file) {
-      document.body.innerHTML =
-        '<p>No PDF found in IndexedDB. Please go back and re-select.</p>';
-      return;
-    }
-
-    // convert the pdf to ArrayBuffer
-    const arrayBuffer = await file.arrayBuffer();
-
-    // pdfjsLib to render page
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.worker.min.js';
-    const pdf  = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    const page = await pdf.getPage(1);
-    viewport   = page.getViewport({ scale });
-
-    // size canvases
-    [pdfCanvas, overlay].forEach(c => {
-      c.width  = viewport.width;
-      c.height = viewport.height;
-    });
-
-    // draw the pdf page
-    await page.render({ canvasContext: pdfCtx, viewport }).promise;
-    })();
-
-    // 3) When the user clicks "Render with Edits"
-    btnMerge.addEventListener('click', () => {
-      console.log('🔘 Merge button clicked');
-      
-      // 1) Grab panels
-      const rawPanels = sessionStorage.getItem('panelsToRefine') || '[]';
-      let panels;
       try {
-        panels = JSON.parse(rawPanels);
-      } catch (e) {
-        console.error('❌ panelsToRefine not valid JSON:', rawPanels);
-        return;
-      }
-      console.log('🗂️ panels:', panels);
-
-      // 2) Bail if nothing to draw
-      if (!panels.length) {
-        console.warn('⚠️ no panelsToRefine found');
-        return;
-      }
-
-      // 3) Clear and draw
-      olCtx.clearRect(0, 0, overlay.width, overlay.height);
-      panels.forEach(async panel => {
-        console.log(`📌 drawing panel ${panel.id} at`, panel.coords, 'from', panel.afterUrl);
-        const img = new Image();
-        img.src = panel.afterUrl;
-        try {
-          await img.decode();
-        } catch (e) {
-          console.error('❌ error decoding image for panel', panel.id, panel.afterUrl, e);
+        const file = await get('current-pdf');
+        if (!file) {
+          document.body.innerHTML = '<p>No PDF found in storage; please go back and re-select.</p>';
           return;
         }
+        const arrayBuffer = await file.arrayBuffer();
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.6.172/pdf.worker.min.js';
+
+        const pdf  = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale });
+
+        [pdfCanvas, overlay].forEach(c => {
+          c.width  = Math.floor(viewport.width);
+          c.height = Math.floor(viewport.height);
+        });
+
+        await page.render({ canvasContext: pdfCtx, viewport }).promise;
+
+        renderEditsList(); // build sidebar initially
+      } catch (e) {
+        console.error('PDF render failed:', e);
+        alert('Failed to render PDF. Check console.');
+      }
+    })();
+
+    // 1) Render the original PDF page from IndexedDB on load
+    async function drawPanelsToOverlay() {
+      const panels = getPanels();
+      if (!panels.length) {
+        olCtx.clearRect(0, 0, overlay.width, overlay.height);
+        return false;
+      }
+
+      // Only enforce afterUrl on ACTIVE panels
+      if (panels.some(p => p.active !== false && !p.afterUrl)) {
+        alert('Some active panels do not have an edited image yet.');
+        return false;
+      }
+
+      olCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+      const activePanels = panels.filter(p => p.active !== false);
+      if (!activePanels.length) return false;
+
+      await Promise.all(activePanels.map(async panel => {
+        const img = new Image();
+        // crossOrigin is optional; remove if your afterUrl is same-origin data/blob URL
+        img.crossOrigin = 'anonymous';
+        img.src = panel.afterUrl;
+        await img.decode();
         const { x, y, w, h } = panel.coords;
-        olCtx.drawImage(
-          img,
-          0,0, img.naturalWidth, img.naturalHeight,
-          x, y, w, h
-        );
-      });
+        olCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, x, y, w, h);
+      }));
+
+      return true;
+    }
+
+    // 2) Click → draw overlays, then enable download
+    btnMerge.addEventListener('click', async () => {
+      console.log('🔘 Merge button clicked');
+      const ok = await drawPanelsToOverlay();
+      btnDownload.disabled = !ok;
     });
-</script>
+
+    // 3) Build & download a 1-page PDF from the composed canvas (base + overlay)
+    btnDownload.addEventListener('click', async () => {
+      try {
+        const comp = document.createElement('canvas');
+        comp.width  = pdfCanvas.width;
+        comp.height = pdfCanvas.height;
+        const cctx = comp.getContext('2d');
+        cctx.drawImage(pdfCanvas, 0, 0);
+        cctx.drawImage(overlay,   0, 0);
+
+        const dataUrl  = comp.toDataURL('image/png');
+        const pngBytes = await (await fetch(dataUrl)).arrayBuffer();
+
+        const pdfDoc  = await PDFDocument.create();
+        const page    = pdfDoc.addPage([comp.width, comp.height]);
+        const pngImg  = await pdfDoc.embedPng(pngBytes);
+        page.drawImage(pngImg, { x: 0, y: 0, width: comp.width, height: comp.height });
+
+        const pdfBytes = await pdfDoc.save();
+        const blob     = new Blob([pdfBytes], { type: 'application/pdf' });
+        const url      = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'merged.pdf';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('Failed to build merged PDF:', err);
+        alert('Failed to build merged PDF. See console for details.');
+      }
+    });
+
+    // --- NEW: sidebar rendering + deletion ---
+
+    function renderEditsList() {
+      const panels = getPanels();
+      editsList.innerHTML = '';
+
+      if (!panels.length) {
+        editsList.innerHTML = '<p class="empty-note">Nothing pasted yet.</p>';
+        btnDownload.disabled = true;
+        olCtx.clearRect(0, 0, overlay.width, overlay.height);
+        return;
+      }
+
+    panels.forEach((panel, idx) => {
+      const item = document.createElement('div');
+      item.className = 'edit-item';
+      item.dataset.index = String(idx);
+
+      const label = document.createElement('span');
+      label.className = 'label';
+      const displayNum = panel.id ?? (idx + 1);
+      label.textContent = `Panel #${displayNum}`;
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'btn-toggle'; // ← IMPORTANT
+      toggleBtn.type = 'button';
+      const isInactive = panel.active === false;
+      toggleBtn.textContent = isInactive ? 'Enable' : 'Disable';
+      toggleBtn.setAttribute('aria-label', `${toggleBtn.textContent} panel ${displayNum}`);
+
+      item.appendChild(label);
+      item.appendChild(toggleBtn);
+      editsList.appendChild(item);
+      });
+    }
+
+    // Event delegation for delete clicks
+    editsList.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.btn-toggle'); // ← match your new button class
+        if (!btn) return;
+
+        const item = btn.closest('.edit-item');
+        const idx  = Number(item?.dataset.index ?? -1);
+        if (idx < 0) return;
+
+        const panels = getPanels();
+        const panel = panels[idx];
+        panel.active = panel.active === false ? true : false; // toggle active flag
+        setPanels(panels);
+
+        renderEditsList();
+        const ok = await drawPanelsToOverlay(); // re-render overlay with new active/inactive state
+        btnDownload.disabled = !ok;
+    });
+
+  </script>
 </body>
 </html>

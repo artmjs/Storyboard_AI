@@ -211,3 +211,19 @@ button.active {
 .panel-card .edit-spinner {
   margin-left: var(--gap);
 }
+
+.workspace { display:flex; gap:1rem; align-items:flex-start; margin-top:1rem; }
+#container { position: relative; }
+canvas { border: 1px solid #ccc; display: block; }
+#overlay { position:absolute; top:0; left:0; }
+
+.sidebar { width: 260px; max-height: calc(100vh - 180px); overflow:auto; border:1px solid #ddd; padding:.75rem; border-radius:.5rem; }
+.sidebar h2 { margin:0 0 .5rem; font-size:1rem; }
+.edits-list { display:flex; flex-direction:column; gap:.5rem; }
+.empty-note { color:#666; margin:0; }
+
+/* list item */
+.edit-item { display:flex; align-items:center; justify-content:space-between; border:1px dashed #ccc; padding:.5rem .6rem; border-radius:.375rem; }
+.edit-item .label { font-size:.95rem; }
+.btn-delete { cursor:pointer; border:0; padding:.35rem .6rem; border-radius:.375rem; background:#f7d7d7; }
+.btn-delete:hover { background:#f2bcbc; }
